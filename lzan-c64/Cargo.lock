@@ -8,11 +8,11 @@ version = "2.5.0-lzan"
 
 [[package]]
 name = "lzan"
-version = "0.1.0"
+version = "1.0.0"
 
 [[package]]
 name = "lzan-c64"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "asm6502",
  "lzan",

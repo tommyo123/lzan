@@ -1,6 +1,6 @@
 [package]
 name = "lzan-c64"
-version = "0.1.0"
+version = "1.0.0"
 edition = "2021"
 license = "MIT"
 description = "C64 decrunch framework: emits configurable 6502 decrunch routines and self-extracting programs in asm6502 format, from the decrunchers/ collection."
