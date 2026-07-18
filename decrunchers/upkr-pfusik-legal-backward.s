@@ -50,7 +50,7 @@
 ;@code-bytes: 236
 
 ; ---- config-defaults ----
-zp_base = $50
+zp_base = $F1
 probs_ram = $0400
 ; ---- end config-defaults ----
 
