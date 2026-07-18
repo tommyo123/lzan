@@ -1,0 +1,23 @@
+# Cargo build output
+target/
+**/target/
+
+# Rust and editor backups
+**/*.rs.bk
+*.pdb
+*.tmp
+*.bak
+*.log
+*.swp
+*.swo
+
+# Local operating-system files
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# Temporary output from command-line compression runs
+roundtrip-out/
+bench-scratch/
+.bench_tmp/
+*.lzan

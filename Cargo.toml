@@ -1,0 +1,23 @@
+[package]
+name = "lzan"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+description = "Byte-aligned LZ with a tANS entropy layer, plus a library of C64 compression encoders."
+
+[[bin]]
+name = "lzan"
+path = "src/main.rs"
+
+[lib]
+name = "lzan"
+path = "src/lib.rs"
+
+# The core crate uses only the Rust standard library.
+[dependencies]
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+panic = "abort"
