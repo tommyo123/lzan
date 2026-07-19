@@ -30,6 +30,7 @@ Desktop.ini
 __pycache__/
 *.pyc
 
+
 # LZAN test / scratch directories (roundtrip outputs, benchmark scratch) — gitignored
 testdir/
 roundtrip-out/
