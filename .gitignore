@@ -40,13 +40,7 @@ bench-scratch/
 # stale nested copy left over from an earlier layout (locked target/ dir)
 /lzan/
 
-# isolated measurement target dirs
-.mtarget/
-.mtarget2/
-
-.exp/
-
 # 6510 decoder bench scratch
 6510/test/
 6510/harness/target/
-.mtarget3/
+
