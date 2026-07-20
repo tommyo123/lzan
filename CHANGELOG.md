@@ -2,6 +2,21 @@
 
 Notable changes to LZAN, newest first. Versions follow semantic versioning.
 
+## [1.0.2] - 2026-07-20
+
+### Changed
+
+- LZSA1 encoding uses an output-sensitive exact match finder,
+  `matchfinder::find_matches_fast`: a suffix array with an LCP-interval sweep,
+  replacing the brute-force offset scan. Emitted streams are unchanged — the new
+  finder produces the same `MatchSet` as `find_matches_exact`, which is retained
+  as the reference oracle for the equivalence tests. Encoding a 64 KB block is
+  roughly 200-350x faster.
+
+### Added
+
+- `lzsa1::compress_lzsa1_with`, which selects the match finder explicitly.
+
 ## [1.0.1] - 2026-07-20
 
 ### Added

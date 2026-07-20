@@ -2,7 +2,7 @@
 //!
 //! Emits and decodes the LZSA1 raw-block byte stream (`lzsa -f1 -r`), forward and backward.
 
-use crate::matchfinder::{find_matches_exact, MatchSet};
+use crate::matchfinder::{find_matches_exact, find_matches_fast, MatchSet};
 
 // LZSA1 format constants.
 const MIN_MATCH: usize = 3; // minimum match length
@@ -50,13 +50,25 @@ struct BestMatch {
 /// Compress `input` to an LZSA1 raw block decodable by `lzsa -d -f1 -r`. Returns an empty vector if
 /// `input` exceeds 64 KB, the raw-block cap. Empty input yields the empty final command plus EOD.
 pub fn compress_lzsa1(input: &[u8]) -> Vec<u8> {
+    compress_lzsa1_with(input, false)
+}
+
+/// Same as [`compress_lzsa1`], but selects the match finder. `use_brute` picks the
+/// O(n * window) reference oracle; the default picks the output-sensitive finder,
+/// which is required to produce an identical `MatchSet` (see the tests).
+pub fn compress_lzsa1_with(input: &[u8], use_brute: bool) -> Vec<u8> {
     if input.len() > 0x10000 {
         return Vec::new();
     }
     let n = input.len();
 
     // Exact match front per position (smallest offset for each length).
-    let ms: MatchSet = find_matches_exact(input, MIN_MATCH, MAX_OFFSET, MAX_VARLEN.min(n.max(1)));
+    let max_len = MAX_VARLEN.min(n.max(1));
+    let ms: MatchSet = if use_brute {
+        find_matches_exact(input, MIN_MATCH, MAX_OFFSET, max_len)
+    } else {
+        find_matches_fast(input, MIN_MATCH, MAX_OFFSET, max_len)
+    };
 
     // Forward multi-arrival parse into a per-position best_match[] array.
     let mut best_match = forward_parse(input, &ms);
@@ -683,6 +695,34 @@ mod tests {
             "lzsa1 uniform forward len {}",
             data.len()
         );
+    }
+
+    /// The compressed block must be byte-identical whichever match finder is
+    /// used. A larger block from the fast finder is a failure; a smaller one is
+    /// a deviation and is reported as such.
+    #[test]
+    fn finder_swap_is_byte_identical() {
+        let sizes = [
+            0usize, 1, 2, 3, 7, 8, 15, 16, 255, 256, 257, 511, 512, 513, 1024, 40000, 65008, 65535,
+        ];
+        for (name, data) in crate::testcorpus::corpus(&sizes) {
+            let brute = compress_lzsa1_with(&data, true);
+            let fast = compress_lzsa1_with(&data, false);
+            assert_eq!(
+                brute.len(),
+                fast.len(),
+                "compressed size differs for {name}: brute {} vs fast {} ({})",
+                brute.len(),
+                fast.len(),
+                if fast.len() < brute.len() {
+                    "DEVIATION: fast is SMALLER"
+                } else {
+                    "FAILURE: fast is LARGER"
+                }
+            );
+            assert!(brute == fast, "compressed bytes differ for {name}");
+            assert_eq!(decode_lzsa1_raw(&fast), data, "roundtrip failed for {name}");
+        }
     }
 
     #[test]

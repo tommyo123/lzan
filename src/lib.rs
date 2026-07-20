@@ -20,6 +20,9 @@ pub mod parse;
 pub mod pucrunch;
 pub mod shrinkler;
 pub mod subsizer;
+// Test corpora, shared by the equivalence tests and the `finderbench` binary.
+#[doc(hidden)]
+pub mod testcorpus;
 pub mod tscrunch;
 pub mod upkr;
 pub mod zx;
