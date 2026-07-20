@@ -23,6 +23,7 @@ pub enum Format {
     PuCrunch,
     LzanMin,
     LzanFull,
+    Bolt,
 }
 
 impl Format {
@@ -42,6 +43,7 @@ impl Format {
             "pucrunch" => Format::PuCrunch,
             "lzan-min" => Format::LzanMin,
             "lzan-full" => Format::LzanFull,
+            "bolt" => Format::Bolt,
             _ => return None,
         })
     }
@@ -61,6 +63,7 @@ impl Format {
             Format::PuCrunch => "pucrunch",
             Format::LzanMin => "lzan-min",
             Format::LzanFull => "lzan-full",
+            Format::Bolt => "bolt",
         }
     }
 }
@@ -209,6 +212,13 @@ pub struct RoutineSpec {
     /// Uses self-modifying code (cannot run from ROM; must be assembled for
     /// the address it runs at).
     pub smc: bool,
+    /// Caller-seeded (`;@seed: caller`): the routine has NO seed preamble and
+    /// expects the caller to seed its zero-page src/dst pointers before entry -
+    /// `[zp_base+0..1] = comp_data` (source) and `[zp_base+2..3] = out_addr`
+    /// (destination). The generator emits its shared seed for these; the default
+    /// (`false`) means the routine seeds itself (a ZP init loop, or baked-in SMC
+    /// operands). Speed is unaffected either way (seeding is one-time).
+    pub caller_seeded: bool,
     /// Expected assembled body size in bytes (informational).
     pub code_bytes: u16,
 }
@@ -247,6 +257,7 @@ static SOURCES: &[(&str, &str)] = sources![
     "lzsa1-marty-small-backward.s",
     "lzsa1-marty-small-legal.s",
     "lzsa1-marty-small-legal-backward.s",
+    "lzsa1-brandwood-faster.s",
     "lzsa2-marty-small.s",
     "lzsa2-marty-small-backward.s",
     "lzsa2-marty-small-legal.s",
@@ -286,6 +297,10 @@ static SOURCES: &[(&str, &str)] = sources![
     "lzan-decoder-full.s",
     "lzan-decoder-full-opt-speed.s",
     "lzan-decoder-full-backward.s",
+    "bolt.s",
+    "bolt-opt-speed.s",
+    "bolt-backward.s",
+    "bolt-opt-speed-backward.s",
 ];
 
 fn parse_hex_or_dec(s: &str) -> Option<u32> {
@@ -406,6 +421,9 @@ fn parse_spec(file: &'static str, source: &'static str) -> Result<RoutineSpec, S
 
     let illegal = req("illegal")? == "yes";
     let smc = req("smc")? == "yes";
+    // Optional: `;@seed: caller` marks a caller-seeded routine (no seed preamble).
+    // Absent or `self` => the routine seeds itself.
+    let caller_seeded = matches!(meta_value(source, "seed"), Some("caller"));
     let code_bytes: u16 = req("code-bytes")?
         .parse()
         .map_err(|_| format!("{file}: bad ;@code-bytes:"))?;
@@ -431,6 +449,7 @@ fn parse_spec(file: &'static str, source: &'static str) -> Result<RoutineSpec, S
         scratch,
         illegal,
         smc,
+        caller_seeded,
         code_bytes,
     })
 }
@@ -486,6 +505,28 @@ pub fn pick_routine(
             .iter()
             .find(|r| r.format == format && r.direction == direction && !r.illegal)
     })
+}
+
+/// Pick the FASTEST routine for `(format, direction)` honoring the illegal-opcode
+/// policy. This is the "speed priority" selector: it prefers the dedicated
+/// `OptSpeed` variant when one exists (and satisfies the legal policy), and
+/// otherwise falls back to [`pick_routine`]'s balanced baseline (`Standard`, or
+/// `Legal` under a legal-only policy).
+///
+/// The compressed stream is identical across variants, so switching to the speed
+/// variant only swaps the embedded decoder body - the packed payload does not
+/// change. `None` only if the format/direction has no usable routine at all.
+pub fn pick_speed_routine(
+    format: Format,
+    direction: Direction,
+    allow_illegal: bool,
+) -> Option<&'static RoutineSpec> {
+    if let Some(sp) = find_routine(format, direction, Variant::OptSpeed) {
+        if allow_illegal || !sp.illegal {
+            return Some(sp);
+        }
+    }
+    pick_routine(format, direction, allow_illegal)
 }
 
 /// The stack-page-resident extra-small variant, honoring the illegal-opcode

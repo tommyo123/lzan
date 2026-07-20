@@ -9,6 +9,7 @@
 
 pub mod apultra;
 pub mod bb2;
+pub mod bolt;
 pub mod codec;
 pub mod exo3;
 pub mod format;

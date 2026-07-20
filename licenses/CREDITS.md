@@ -3,8 +3,9 @@
 This project ships independent reimplementations of established compression
 formats, plus 6502/6510 decrunchers ported from published originals. Every
 upstream work is credited below, and its license text is in this directory
-(`LICENSE-<format>.md`). The LZAN container and the `lzan-decoder` /
-`pucrunch-lzan` decoders are original work under the project's MIT license
+(`LICENSE-<format>.md`). The LZAN container, the `lzan-decoder` /
+`pucrunch-lzan` decoders, and the project's own `bolt` (BoltLZ) format and
+decoder are original work under the project's MIT license
 (`../LICENSE`).
 
 ## Decrunchers and their upstream works
@@ -17,6 +18,7 @@ Each decoder source contains its upstream attribution in the header.
 | `zx02-small-dmsc` | zx02 6502 decoder | Daniel Serpell (DMSC) | MIT | `LICENSE-zx02.md` |
 | `lzsa1-marty` | `decompress_small_v1.asm` | Emmanuel Marty | Zlib | `LICENSE-lzsa.md` |
 | `lzsa2-marty` | `decompress_small_v2.asm` | Emmanuel Marty | Zlib | `LICENSE-lzsa.md` |
+| `lzsa1-brandwood-faster` | `decompress_faster_v1.asm` (`lzsa1_6502.s`, speed-optimized, opt-speed variant) | John Brandwood (2021) | BSL-1.0 | `LICENSE-lzsa.md` |
 | `exomizer-lind-mem` | `exodecrunch.s` | Magnus Lind | Zlib | `LICENSE-exomizer.md` |
 | `upkr-pfusik` | `unupkr.asx` (decoder); upkr format | Piotr Fusik (decoder); exoticorn (format) | Zlib (decoder); Unlicense (format) | `LICENSE-upkr.md` |
 | `byteboozer2-difraia` | ByteBoozer2 `Decruncher.inc` | Luigi Di Fraia (2018); HCL (decruncher, 2003); David Malmborg (B2 format, 2014) | MIT | `LICENSE-byteboozer2.md` |
@@ -28,6 +30,7 @@ Each decoder source contains its upstream attribution in the header.
 | `subsizer-tlr-standalone` | Subsizer + `standalone/decrunch_normal.asm` | Daniel Kahlin ("tlr") | BSD-style permissive | `LICENSE-subsizer.md` |
 | `lzan-decoder` | original | LZAN project | MIT | `../LICENSE` |
 | `pucrunch-lzan` | original, clean-room | LZAN project | MIT | `../LICENSE` |
+| `bolt` (BoltLZ) | original (own byte-oriented LZ format) | LZAN project | MIT | `../LICENSE` |
 
 Every family above also has `-backward`, `-opt-size`, `-opt-speed`, `-legal`, and
 `-zpstack` variants; each carries the same upstream credit as its base family.
@@ -46,7 +49,7 @@ Every family above also has `-backward`, `-opt-size`, `-opt-speed`, `-legal`, an
 * HCL: ByteBoozer2 6502 decruncher (2003)
 * David Malmborg: ByteBoozer 2.0 format (2014)
 * Antonio Savona: TSCrunch
-* John Brandwood: aPLib 6502 forward decoder
+* John Brandwood: aPLib 6502 forward decoder, LZSA1 faster 6502 decoder (opt-speed)
 * Peter Ferrie: aPLib decoder contributions
 * Aske Simon Christensen: Shrinkler
 * Daniel Kahlin ("tlr"): Subsizer

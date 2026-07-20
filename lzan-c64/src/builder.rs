@@ -177,6 +177,24 @@ impl Decruncher {
         })
     }
 
+    /// Prefer the FASTEST decoder for this format/direction.
+    ///
+    /// By default the framework selects the balanced `Standard` decoder (tuned
+    /// for a size/speed compromise). Calling this swaps to the dedicated
+    /// `OptSpeed` variant when one is registered for the current
+    /// (format, direction); when none exists it leaves the balanced decoder in
+    /// place (a safe no-op). The decoded stream is identical - only the decoder
+    /// body changes - so the packed payload is unaffected.
+    ///
+    /// Idempotent, and order-independent w.r.t. the other builder options as long
+    /// as it is called before `.prg()` / `.program_source()`.
+    pub fn priority_speed(mut self) -> Self {
+        if let Some(sp) = find_routine(self.spec.format, self.spec.direction, Variant::OptSpeed) {
+            self.spec = sp;
+        }
+        self
+    }
+
     /// The underlying routine's metadata.
     pub fn spec(&self) -> &'static RoutineSpec {
         self.spec

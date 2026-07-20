@@ -59,8 +59,9 @@ pub use builder::{
 pub use emit::{compress_for, Built};
 pub use decoder_tailoring::{tailored_body, DecoderTailoring};
 pub use registry::{
-    all_routines, find_routine, pick_routine, pick_zp_stack_routine, Direction, EofKind, Format,
-    Needs, PayloadAbi, RoutineSpec, ScratchSpec, Variant, CONFIG_BLOCK_BEGIN, CONFIG_BLOCK_END,
+    all_routines, find_routine, pick_routine, pick_speed_routine, pick_zp_stack_routine, Direction,
+    EofKind, Format, Needs, PayloadAbi, RoutineSpec, ScratchSpec, Variant, CONFIG_BLOCK_BEGIN,
+    CONFIG_BLOCK_END,
 };
 /// PuCrunch in-place safety metrics (see `lzan::pucrunch`): callers placing a
 /// PuCrunch container for in-place decode must verify the write head cannot
@@ -109,6 +110,12 @@ pub use lzan::zx0compat::{
     max_gap_backward as zx0_gap_backward, max_gap_forward as zx0_gap_forward,
 };
 pub use lzan::zx02::{max_gap_backward as zx02_gap_backward, max_gap_forward as zx02_gap_forward};
+/// BoltLZ in-place safety margins (see `lzan::bolt`): BoltLZ is byte-aligned
+/// (whole-byte literals and offsets), so - like LZSA1 - the running compression
+/// never balloons far above the output produced, and the in-place gap is only a
+/// handful of bytes. Without this the workshop's placer must conservatively
+/// reject BoltLZ forward whenever the packed stream overlaps the output.
+pub use lzan::bolt::{max_gap_backward as bolt_gap_backward, max_gap_forward as bolt_gap_forward};
 /// TSCrunch in-place layout safety (see `lzan::tscrunch`): how many bytes
 /// ABOVE the end-aligned reference position the packed stream must be placed
 /// so the 6502 decoder's per-token write overshoot (descending literal copy,
@@ -125,7 +132,7 @@ mod tests {
     #[test]
     fn registry_parses_all_47() {
         let all = all_routines();
-        assert_eq!(all.len(), 47, "expected 47 curated routines");
+        assert_eq!(all.len(), 52, "expected 52 curated routines");
         // Every (format, direction, variant) triple is unique.
         for (i, a) in all.iter().enumerate() {
             for b in &all[i + 1..] {
@@ -147,6 +154,34 @@ mod tests {
                 r.entry
             );
         }
+    }
+
+    #[test]
+    fn priority_speed_picks_opt_speed_when_present_else_falls_back() {
+        // LzanMin has a dedicated opt-speed decoder: the speed picker and the
+        // builder flag must select it.
+        let sp = pick_speed_routine(Format::LzanMin, Direction::Forward, true)
+            .expect("lzan-min forward exists");
+        assert_eq!(sp.variant, Variant::OptSpeed, "speed picker should choose opt-speed");
+        let d = Decruncher::new(Format::LzanMin, Direction::Forward)
+            .unwrap()
+            .priority_speed();
+        assert_eq!(d.spec().variant, Variant::OptSpeed, "builder flag should choose opt-speed");
+
+        // TSCrunch's faster "extreme" decoder is the opt-speed variant.
+        let ts = pick_speed_routine(Format::TsCrunch, Direction::Forward, true)
+            .expect("tscrunch forward exists");
+        assert_eq!(ts.variant, Variant::OptSpeed, "tscrunch speed pick = extreme decoder");
+
+        // A format with no opt-speed variant falls back to the balanced baseline,
+        // and the flag is a safe no-op.
+        let sp2 = pick_speed_routine(Format::Zx02, Direction::Forward, true)
+            .expect("zx02 forward exists");
+        assert_eq!(sp2.variant, Variant::Standard, "no opt-speed -> Standard baseline");
+        let d2 = Decruncher::new(Format::Zx02, Direction::Forward)
+            .unwrap()
+            .priority_speed();
+        assert_eq!(d2.spec().variant, Variant::Standard, "flag is a no-op when no opt-speed exists");
     }
 
     #[test]

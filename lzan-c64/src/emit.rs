@@ -22,7 +22,7 @@ use std::collections::HashMap;
 
 use crate::builder::{Decruncher, Done, GenError, Issue, MoveSrc, Packed, Severity};
 use crate::registry::{
-    Direction, EofKind, Format, PayloadAbi, CONFIG_BLOCK_BEGIN, CONFIG_BLOCK_END,
+    Direction, EofKind, Format, PayloadAbi, RoutineSpec, CONFIG_BLOCK_BEGIN, CONFIG_BLOCK_END,
 };
 
 /// A fully generated program.
@@ -49,6 +49,28 @@ fn hex4(v: u16) -> String {
 }
 fn hex2(v: u8) -> String {
     format!("${:02X}", v)
+}
+
+/// The shared ZP-seed for a caller-seeded decoder (`;@seed: caller`): seed the
+/// source pointer (`= comp_data`) at `zp_base+0..1` and the destination pointer
+/// (`= out_addr`) at `zp_base+2..3`, then the decoder's own body carries no seed
+/// preamble. Returns an empty string for self-seeding routines. This is the one
+/// place the seed lives - it is shared across every caller-seeded decoder, so a
+/// decoder body matches its upstream size. Seeding is one-time (16 bytes, off the
+/// hot path), so decode speed is unchanged. `comp_data` / `out_addr` are the
+/// constants emitted in `decoder_consts`, so this must follow that block.
+fn caller_seed_asm(spec: &RoutineSpec, zp_base: u8) -> String {
+    if !spec.caller_seeded {
+        return String::new();
+    }
+    format!(
+        "        LDA #<comp_data\n        STA {s0}\n        LDA #>comp_data\n        STA {s1}\n\
+         \x20       LDA #<out_addr\n        STA {s2}\n        LDA #>out_addr\n        STA {s3}\n",
+        s0 = hex2(zp_base),
+        s1 = hex2(zp_base.wrapping_add(1)),
+        s2 = hex2(zp_base.wrapping_add(2)),
+        s3 = hex2(zp_base.wrapping_add(3)),
+    )
 }
 
 // ---------------------------------------------------------------------------
@@ -121,6 +143,8 @@ pub fn compress_for(
             let blob = lzan::zx::compress_backward(input, 4, true, true, 4);
             return Ok((blob[1..].to_vec(), Some(blob[0])));
         }
+        (Format::Bolt, Forward) => lzan::bolt::compress_bolt(input),
+        (Format::Bolt, Backward) => lzan::bolt::compress_bolt_backward(input),
     };
     Ok((stream, None))
 }
@@ -746,8 +770,10 @@ impl Decruncher {
             // The decoder core: wrapper (JSR entry / done tail) + body. The
             // consts are pure `symbol = value` lines (zero assembled bytes),
             // so measuring consts+core gives the core's size.
+            let seed = caller_seed_asm(spec, plan.zp_base.or(spec.zp_base_default).unwrap_or(0));
             let core = format!(
-                "staged_decrunch:\n        JSR {entry}\n{tail}{body}\n",
+                "staged_decrunch:\n{seed}        JSR {entry}\n{tail}{body}\n",
+                seed = seed,
                 entry = spec.entry,
                 tail = tail,
                 body = body,
@@ -958,6 +984,7 @@ impl Decruncher {
             s.push_str(&format!("        JMP {}\n", hex4(stage_at)));
         } else {
             s.push_str(&decoder_consts);
+            s.push_str(&caller_seed_asm(spec, plan.zp_base.or(spec.zp_base_default).unwrap_or(0)));
             s.push_str(&format!("        JSR {}\n", spec.entry));
             s.push_str(&tail);
             s.push_str(&body);

@@ -29,6 +29,7 @@ a decoder for a generated program.
 | PuCrunch | `pucrunch-lzan.s` | clean-room (pucrunch format by Pasi Ojala) | MIT | 279 |
 | LZAN minimal | `lzan-decoder-min.s` | this project | MIT | 181 |
 | LZAN full | `lzan-decoder-full.s` | this project | MIT | 315 |
+| BoltLZ | `bolt.s` | this project | MIT | 97 |
 
 The TSCrunch collection also includes `tscrunch-negativecharge-beebasm-extreme.s`, a
 BeebAsm/Acorn port of the same format (261 bytes).
@@ -45,8 +46,24 @@ BeebAsm/Acorn port of the same format (261 bytes).
   can pick legal or illegal freely.
 - `-opt-size`: for a few formats, a smaller but slower decoder that de-inlines shared
   bit/byte-fetch routines (apultra, Subsizer, ByteBoozer2, TSCrunch, Shrinkler).
-- `-opt-speed`: for the two LZAN decoders, a larger but faster decoder that inlines the hot
-  bit reader.
+- `-opt-speed`: a larger-but-faster decoder, selected by the `lzan-c64` speed-priority flag
+  (`Decruncher::priority_speed()` / `registry::pick_speed_routine`); the default stays on the
+  balanced `standard` variant, and formats with no opt-speed variant fall back to it. Present today
+  for the two LZAN decoders (inline the hot bit reader), for **LZSA1**
+  (`lzsa1-brandwood-faster.s` - John Brandwood's `decompress_faster_v1`, Boost-1.0; 191 B = the
+  upstream size, legal opcodes), for **TSCrunch** (the parity-split "extreme" decoder
+  `tscrunch-negativecharge-beebasm-extreme.s`), and for **BoltLZ** in both directions
+  (`bolt-opt-speed.s`, 147 B forward, and `bolt-opt-speed-backward.s`, 219 B backward): the standard
+  decoder with its per-command pointer advances inlined (no JSR/RTS overhead) and
+  2-byte-per-iteration copy loops. The smaller `bolt.s`/`bolt-backward.s` remain the size/default
+  choice.
+- `;@seed: caller` marks a **caller-seeded** decoder: it has no seed preamble and expects the caller
+  to seed its zero-page pointers before entry - `[zp_base+0..1] = comp_data` (source),
+  `[zp_base+2..3] = out_addr` (destination). The `lzan-c64` generator emits one **shared** seed for
+  all such decoders (`Decruncher` does this automatically), so the decoder body matches its upstream
+  size (`bolt.s` 97 B, `lzsa1-brandwood-faster.s` 191 B). Seeding is one-time and off the hot path,
+  so decode speed is unchanged; self-seeding decoders (the default) carry their own ZP-init or
+  baked-in SMC operands.
 - `pucrunch-lzan-zpstack.s`: an extra-small forward pucrunch body (211 bytes) meant for the
   `$0100` stack-page slot; the generator selects it when its staged blob fits there and
   falls back to the baseline otherwise.
@@ -61,3 +78,11 @@ BeebAsm/Acorn port of the same format (261 bytes).
 - `pucrunch-lzan*.s` are clean-room implementations written from the pucrunch token
   grammar; no original pucrunch source was consulted. The one illegal op in the standard
   body (`SBX #$FF`) is expanded to `TAX`/`INX` in the `-legal` twin.
+- `bolt.s` (BoltLZ) is this project's **purely byte-oriented** decoder: it contains no bit reader at
+  all - every field is whole bytes - trading ratio for a small (97 B), fast decoder; it is smaller
+  than the other byte-oriented decoders in this collection. It is a sign-bit-dispatch LZ77 (token
+  `$00`=EOF, `$01..$7F`=literal run, `$80..$FF`=match + 2-byte offset), legal-opcode-only, encoded by
+  `lzan::bolt`. The forward decoders (`bolt.s` 97 B, `bolt-opt-speed.s` 147 B) are caller-seeded; the
+  backward / in-place decoders (`bolt-backward.s` 174 B, `bolt-opt-speed-backward.s` 219 B) self-seed
+  their end pointers and copy DESCENDING from `dst + d` (the overlap/RLE-safe direction downward), so
+  a BoltLZ file can also be decrunched over itself on a full 64 KB span.

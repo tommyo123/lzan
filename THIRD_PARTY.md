@@ -8,7 +8,7 @@ their upstream works. Full license texts are in [`licenses/`](licenses/).
 |---|---|---|
 | ZX0 | Einar Saukas; 6502 port by NegativeCharge from work by Krzysztof "XXL" Dudek | BSD 3-Clause |
 | ZX02 | Daniel Serpell (DMSC) | MIT |
-| LZSA1 / LZSA2 | Emmanuel Marty | Zlib |
+| LZSA1 / LZSA2 | Emmanuel Marty; faster LZSA1 decoder by John Brandwood | Zlib; BSL-1.0 |
 | Exomizer | Magnus Lind | Zlib |
 | upkr | exoticorn; 6502 decoder by Piotr Fusik | Unlicense and Zlib |
 | ByteBoozer2 | Luigi Di Fraia, HCL, and David Malmborg | MIT |

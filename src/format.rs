@@ -17,7 +17,8 @@
 
 use crate::codec::Options;
 use crate::{
-    apultra, bb2, exo3, lzsa1, lzsa2, shrinkler, subsizer, tscrunch, upkr, zx, zx02, zx0compat,
+    apultra, bb2, bolt, exo3, lzsa1, lzsa2, shrinkler, subsizer, tscrunch, upkr, zx, zx02,
+    zx0compat,
 };
 
 /// A supported compression format.
@@ -47,6 +48,8 @@ pub enum Format {
     Shrinkler,
     /// Subsizer.
     Subsizer,
+    /// BoltLZ: the project's own byte-oriented LZ with no bit reader.
+    Bolt,
 }
 
 impl Format {
@@ -65,6 +68,7 @@ impl Format {
             Format::Apultra => "apultra",
             Format::Shrinkler => "shrinkler",
             Format::Subsizer => "subsizer",
+            Format::Bolt => "bolt",
         }
     }
 
@@ -83,6 +87,7 @@ impl Format {
             "apultra" | "aplib" | "apl" => Format::Apultra,
             "shrinkler" | "shr" => Format::Shrinkler,
             "subsizer" | "sub" => Format::Subsizer,
+            "bolt" | "boltlz" => Format::Bolt,
             _ => return None,
         })
     }
@@ -102,11 +107,12 @@ impl Format {
             Format::Apultra => apultra::MAX_LEVEL,
             Format::Shrinkler => shrinkler::MAX_LEVEL,
             Format::Subsizer => subsizer::MAX_LEVEL,
+            Format::Bolt => bolt::MAX_LEVEL,
         }
     }
 
     /// All formats, in a stable order.
-    pub fn all() -> [Format; 12] {
+    pub fn all() -> [Format; 13] {
         [
             Format::Lzan,
             Format::Zx0,
@@ -120,6 +126,7 @@ impl Format {
             Format::Apultra,
             Format::Shrinkler,
             Format::Subsizer,
+            Format::Bolt,
         ]
     }
 }
@@ -141,6 +148,7 @@ pub fn compress(format: Format, input: &[u8], level: u8, backward: bool) -> Vec<
         Format::Apultra => apultra::compress(input, level, backward),
         Format::Shrinkler => shrinkler::compress(input, level, backward),
         Format::Subsizer => subsizer::compress(input, level, backward),
+        Format::Bolt => bolt::compress(input, level, backward),
     }
 }
 
@@ -159,6 +167,7 @@ pub fn decompress(format: Format, input: &[u8], backward: bool) -> Vec<u8> {
         Format::Apultra => apultra::decompress(input, backward),
         Format::Shrinkler => shrinkler::decompress(input, backward),
         Format::Subsizer => subsizer::decompress(input, backward),
+        Format::Bolt => bolt::decompress(input, backward),
     }
 }
 

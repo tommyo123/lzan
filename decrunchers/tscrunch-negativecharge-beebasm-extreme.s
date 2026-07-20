@@ -18,7 +18,7 @@
 ; ===========================================================================
 ;@format: tscrunch
 ;@direction: forward
-;@variant: alt-extreme
+;@variant: opt-speed
 ;@entry: full_decomp
 ;@vfy-key: tscrunch-negativecharge-extreme
 ;@encoder: lzan::tscrunch::compress_tscrunch

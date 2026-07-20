@@ -7,15 +7,19 @@ sources. The core crate uses only the Rust standard library.
 
 ## Included formats
 
-The `format` module provides a common `compress` and `decompress` interface.
-Format modules also expose native APIs for format-specific settings.
+The collection covers the 15 formats listed below, each with a 6502 decoder in
+[`decrunchers/`](decrunchers/). The `format` module provides a common `compress` and
+`decompress` interface; format modules also expose native APIs for
+format-specific settings.
 
 | Format | Module | Stream type |
 |---|---|---|
-| LZAN | `zx` | LZAN container |
+| LZAN (full) | `zx` | LZAN container |
+| LZAN (minimal) | `zx` | LZAN container, minimal decoder profile |
 | ZX0 v2 | `zx0compat`, `zx0opt` | Raw stream |
 | ZX02 | `zx02` | Raw stream |
-| LZSA1 / LZSA2 | `lzsa1`, `lzsa2` | Raw block |
+| LZSA1 | `lzsa1` | Raw block |
+| LZSA2 | `lzsa2` | Raw block |
 | Exomizer 3 | `exo3` | Raw stream |
 | upkr | `upkr` | Raw stream |
 | ByteBoozer2 | `bb2` | Raw stream and B2 container |
@@ -24,8 +28,13 @@ Format modules also expose native APIs for format-specific settings.
 | Shrinkler | `shrinkler` | Raw stream |
 | Subsizer | `subsizer` | Raw stream |
 | PuCrunch | `pucrunch` | Raw stream |
+| BoltLZ | `bolt` | Byte-only LZ, no bit reader |
 
-Several formats support forward and backward streams for in-place decoding.
+BoltLZ is the project's own byte-oriented LZ77: every field is a whole byte and
+dispatch is a single sign-bit test, trading ratio for a small decoder (97 bytes,
+no undocumented opcodes). Several formats, BoltLZ included, provide forward and
+backward streams for in-place decoding, and a speed-optimized decoder variant
+alongside the size-oriented default.
 
 ## Library use
 
