@@ -56,8 +56,10 @@
 ;@smc: yes
 ;@code-bytes: 170
 
+; $F7-$FE: RS-232 buffer pointers (free unless RS-232 is used) + the four
+; free bytes.
 ; ---- config-defaults ----
-zp_base = $80
+zp_base = $F7
 ; ---- end config-defaults ----
 
 ZX0_OUTPUT = zp_base+0  ; 2 bytes: output cursor (ZP), writes DOWN

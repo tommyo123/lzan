@@ -2,6 +2,22 @@
 
 Notable changes to LZAN, newest first. Versions follow semantic versioning.
 
+## [1.0.3] - 2026-07-23
+
+### Fixed
+
+- Moved the default zero-page base for zx0 (to `$F7`) and zx02 (to `$F6`); the
+  old `$80` overlapped the CHRGET routine and broke a self-extracting BASIC
+  program. Streams are unchanged.
+- Moved the upkr and Shrinkler probability-table scratch defaults to `$C000`,
+  off the screen and the BASIC program area.
+
+### Added
+
+- `Decruncher::run_basic_when_done()` for starting a decrunched BASIC program,
+  and a zero-page safety check (`ZpClass`, `regions_hit`) that warns or errors
+  when a span would break BASIC or the KERNAL on return.
+
 ## [1.0.2] - 2026-07-20
 
 ### Changed

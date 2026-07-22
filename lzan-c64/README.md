@@ -28,7 +28,6 @@ for routine in all_routines() {
 ```rust
 let program = standard
     .code_address(0x0801)
-    .zero_page(0xf0)
     .scratch_address(0x0740)
     .pack(&data)
     .output(0x4000)
@@ -38,6 +37,12 @@ let program = standard
 The builder can embed compressed data, reference an external payload, add a
 BASIC stub, control C64 memory banking, move packed data, stage a decruncher,
 and set the completion address.
+
+Each routine's default `zero_page()` base is placed so BASIC and the KERNAL
+survive the decrunch; the span is checked against a C64 zero-page map
+(`ZpClass`, `regions_hit`) when control returns to BASIC. `run_basic_when_done()`
+starts a decrunched BASIC program (relink, set `VARTAB`, `CLR`, enter the
+interpreter loop), which a plain `jmp_when_done()` cannot do.
 
 ## Output
 

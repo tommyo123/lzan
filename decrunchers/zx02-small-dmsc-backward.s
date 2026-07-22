@@ -34,8 +34,10 @@
 ;@smc: no
 ;@code-bytes: 128
 
+; $F6-$FF: only $F6 (KEYTAB high) is live KERNAL state, re-derived by the
+; keyboard scan; the rest is RS-232 pointers and free bytes.
 ; ---- config-defaults ----
-zp_base = $80
+zp_base = $F6
 ; ---- end config-defaults ----
 
 offset   = zp_base+0

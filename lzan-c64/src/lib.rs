@@ -21,7 +21,6 @@
 //!     .all_ram()                     // SEI + $01=$34: all 64K visible
 //!     .pack(&data)                   // compress + embed payload
 //!     .output(0x4000)                // decrunch to $4000
-//!     .zero_page(0xF0)               // ZP span the routine may use
 //!     .prg()                         // [$01,$08] + assembled program
 //!     .unwrap();
 //! std::fs::write("bitmap.prg", prg).unwrap();
@@ -42,9 +41,30 @@
 //!     .move_packed_to(0x0400)        // payload out of harm's way first
 //!     .stage_decruncher_at(0x0100)   // decoder runs from the stack page
 //!     .output(0x0801)                // unpack over the program itself
-//!     .jmp_when_done(0x0801)         // then start it
+//!     .jmp_when_done(0x0801)         // machine-code payload: enter at $0801
 //!     .program_source()              // asm6502 source, straight from RAM
 //!     .unwrap();
+//! ```
+//!
+//! ## Example: self-extracting BASIC program
+//!
+//! [`Decruncher::run_basic_when_done`] relinks the program, sets `VARTAB`, runs
+//! `CLR` and enters the interpreter loop - a plain `JMP` cannot start BASIC:
+//!
+//! ```no_run
+//! use lzan_c64::{Decruncher, Direction, Format};
+//!
+//! let basic = std::fs::read("game.prg").unwrap();  // a tokenized BASIC program
+//! let prg = Decruncher::new(Format::Zx02, Direction::Backward).unwrap()
+//!     .basic_stub()
+//!     .pack(&basic[2..])             // drop the $01,$08 load address
+//!     .move_packed_to(0x0400)
+//!     .stage_decruncher_at(0x0100)
+//!     .output(0x0801)                // BASIC text goes where TXTTAB points
+//!     .run_basic_when_done()
+//!     .prg()
+//!     .unwrap();
+//! # let _ = prg;
 //! ```
 
 mod builder;
@@ -52,6 +72,7 @@ mod decoder_gates;
 mod decoder_tailoring;
 mod emit;
 mod registry;
+mod zp_safety;
 
 pub use builder::{
     Decruncher, Done, GenError, Issue, MoveData, MoveSrc, Packed, Severity,
@@ -63,6 +84,7 @@ pub use registry::{
     EofKind, Format, Needs, PayloadAbi, RoutineSpec, ScratchSpec, Variant, CONFIG_BLOCK_BEGIN,
     CONFIG_BLOCK_END,
 };
+pub use zp_safety::{first_safe_base, regions_hit, ZpClass, ZpRegion};
 /// PuCrunch in-place safety metrics (see `lzan::pucrunch`): callers placing a
 /// PuCrunch container for in-place decode must verify the write head cannot
 /// reach unread stream bytes - the format's escaped literals locally EXPAND,
@@ -182,6 +204,128 @@ mod tests {
             .unwrap()
             .priority_speed();
         assert_eq!(d2.spec().variant, Variant::Standard, "flag is a no-op when no opt-speed exists");
+    }
+
+    #[test]
+    fn no_default_zp_span_touches_persistent_zero_page() {
+        // A default span may sit on state the KERNAL re-derives, but never on
+        // state that only a reset restores.
+        for r in all_routines() {
+            if r.zp_len == 0 {
+                continue;
+            }
+            let base = r.zp_base_default.expect("zp_len > 0 implies a default base");
+            let bad: Vec<_> = regions_hit(base, r.zp_len)
+                .into_iter()
+                .filter(|x| x.class == ZpClass::Persistent)
+                .map(|x| x.name)
+                .collect();
+            assert!(
+                bad.is_empty(),
+                "{r}: default zp_base ${base:02X}+{} hits {bad:?}",
+                r.zp_len
+            );
+        }
+    }
+
+    #[test]
+    fn zp_span_over_chrget_is_rejected_when_basic_must_survive() {
+        // $80-$89 lands inside CHRGET ($73-$8A), which BASIC cannot survive.
+        let err = Decruncher::new(Format::Zx02, Direction::Forward)
+            .unwrap()
+            .basic_stub()
+            .pack(&sample_input())
+            .output(0x4000)
+            .zero_page(0x80)
+            .build();
+        match err {
+            Err(GenError::Validation(v)) => assert!(
+                v.iter().any(|i| i.severity == Severity::Error && i.msg.contains("CHRGET")),
+                "expected a CHRGET error, got {v:?}"
+            ),
+            other => panic!("expected validation failure, got {other:?}"),
+        }
+        // The same span is only a warning when the payload takes the machine.
+        let built = Decruncher::new(Format::Zx02, Direction::Forward)
+            .unwrap()
+            .basic_stub()
+            .all_ram()
+            .pack(&sample_input())
+            .output(0x4000)
+            .zero_page(0x80)
+            .jmp_when_done(0x4000)
+            .build();
+        assert!(built.is_ok(), "Jmp payload should not be blocked: {built:?}");
+    }
+
+    #[test]
+    fn run_basic_emits_relink_and_interpreter_entry() {
+        // The classic BASIC SFX layout: payload down to $0400, decoder on the
+        // stack page, decrunch backward over $0801, then start the program.
+        // The tail lands inside the staged blob, so check the assembled bytes.
+        let built = Decruncher::new(Format::Zx02, Direction::Backward)
+            .unwrap()
+            .basic_stub()
+            .pack(&sample_input())
+            .move_packed_to(0x0400)
+            .stage_decruncher_at(0x0100)
+            .output(0x0801)
+            .run_basic_when_done()
+            .assemble()
+            .unwrap();
+        // The relink stops at the end-of-program link, so VARTAB is $22 + 2.
+        let tail = [
+            0x20, 0x33, 0xA5, // JSR $A533
+            0xA5, 0x22, 0x18, 0x69, 0x02, 0x85, 0x2D, // LDA $22 / CLC / ADC #$02 / STA $2D
+            0xA5, 0x23, 0x69, 0x00, 0x85, 0x2E, // LDA $23 / ADC #$00 / STA $2E
+            0x20, 0x59, 0xA6, // JSR $A659
+            0x4C, 0xAE, 0xA7, // JMP $A7AE
+        ];
+        assert!(
+            built.bytes.windows(tail.len()).any(|w| w == tail),
+            "relink + interpreter entry missing from the assembled program"
+        );
+    }
+
+    #[test]
+    fn run_basic_needs_the_basic_rom_banked_in() {
+        let err = Decruncher::new(Format::Zx02, Direction::Backward)
+            .unwrap()
+            .basic_stub()
+            .all_ram() // $01 = $34, never restored
+            .pack(&sample_input())
+            .move_packed_to(0x0400)
+            .stage_decruncher_at(0x0100)
+            .output(0x0801)
+            .run_basic_when_done()
+            .build();
+        match err {
+            Err(GenError::Validation(v)) => assert!(
+                v.iter().any(|i| i.severity == Severity::Error && i.msg.contains("banked in")),
+                "expected a banking error, got {v:?}"
+            ),
+            other => panic!("expected validation failure, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn scratch_over_the_program_image_is_rejected() {
+        let err = Decruncher::new(Format::Shrinkler, Direction::Forward)
+            .unwrap()
+            .basic_stub()
+            .pack(&sample_input())
+            .output(0x4000)
+            .scratch_address(0x0800) // page-aligned, but on top of the program
+            .build();
+        match err {
+            Err(GenError::Validation(v)) => assert!(
+                v.iter().any(|i| i.severity == Severity::Error
+                    && i.msg.contains("scratch region")
+                    && i.msg.contains("program image")),
+                "expected a scratch/program overlap error, got {v:?}"
+            ),
+            other => panic!("expected validation failure, got {other:?}"),
+        }
     }
 
     #[test]

@@ -28,6 +28,13 @@ The block between `; ---- config-defaults ----` markers defines default
 zero-page and scratch locations. `lzan-c64` replaces that block when a routine
 is relocated.
 
+## Zero page
+
+`;@zp-len` is the number of contiguous zero-page bytes the routine claims, and
+`zp_base` is where that span starts by default. The defaults avoid zero page
+that BASIC or the KERNAL need to keep intact after the decrunch; `lzan-c64`
+checks the resolved span against a zero-page map when control returns to BASIC.
+
 ## Manual use
 
 To assemble a routine directly, define the symbols named by its `;@needs:`

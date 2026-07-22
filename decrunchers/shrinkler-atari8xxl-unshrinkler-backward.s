@@ -58,7 +58,7 @@
 
 ; ---- config-defaults ----
 zp_base = $40
-probs_base = $2000
+probs_base = $C000
 ; ---- end config-defaults ----
 
 ; ---- zero page layout (zp_base + 0..18, contiguous; REORDERED vs forward:

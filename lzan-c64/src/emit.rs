@@ -21,6 +21,7 @@
 use std::collections::HashMap;
 
 use crate::builder::{Decruncher, Done, GenError, Issue, MoveSrc, Packed, Severity};
+use crate::zp_safety;
 use crate::registry::{
     Direction, EofKind, Format, PayloadAbi, RoutineSpec, CONFIG_BLOCK_BEGIN, CONFIG_BLOCK_END,
 };
@@ -545,6 +546,84 @@ impl Decruncher {
                     hex2(base)
                 ));
             }
+            // `Rts`/`RunBasic` return to BASIC, so the span must not damage it.
+            // `Jmp` hands the machine to the payload, so it is not checked.
+            let preserve = matches!(self.done, Done::Rts | Done::RunBasic);
+            let span_end = (base as u16 + spec.zp_len as u16 - 1) as u8;
+            for r in zp_safety::regions_hit(base, spec.zp_len) {
+                // The `RunBasic` tail writes VARTAB and runs CLR, so it puts
+                // $2D-$36 back itself.
+                let class = if self.done == Done::RunBasic && r.lo >= 0x2D && r.hi <= 0x36 {
+                    zp_safety::ZpClass::Deferred
+                } else {
+                    r.class
+                };
+                let alt = zp_safety::first_safe_base(spec.zp_len, 0x02)
+                    .map(|b| format!(
+                        "; {} bytes fit at {} - set zero_page({})",
+                        spec.zp_len, hex2(b), hex2(b)
+                    ))
+                    .unwrap_or_else(|| format!(
+                        "; no {}-byte window in page zero is free when BASIC and the KERNAL \
+                         must survive (the widest is $07-$2A, 36 bytes)",
+                        spec.zp_len
+                    ));
+                let where_ = format!(
+                    "zp span {}..{} covers {}..{}, {}",
+                    hex2(base), hex2(span_end), hex2(r.lo), hex2(r.hi), r.name
+                );
+                match (class, preserve) {
+                    (zp_safety::ZpClass::Persistent, true) => err(&mut issues, format!(
+                        "{where_} - nothing rebuilds this without a reset{alt}"
+                    )),
+                    (zp_safety::ZpClass::Persistent, false) => warn(&mut issues, format!(
+                        "{where_} - nothing rebuilds this without a reset, so BASIC and the \
+                         KERNAL are unusable after the decrunch{alt}"
+                    )),
+                    (zp_safety::ZpClass::Deferred, true) => warn(&mut issues, format!(
+                        "{where_} - re-derived in normal operation, but the damage is visible \
+                         until then{alt}"
+                    )),
+                    _ => {}
+                }
+            }
+        }
+
+        // Re-entering BASIC needs the BASIC ROM banked in and the decrunched
+        // program where TXTTAB points.
+        if self.done == Done::RunBasic {
+            if let Some((val, restore)) = self.all_ram {
+                let effective = restore.unwrap_or(val);
+                // CLR goes through the KERNAL (CLALL), which needs IO as well
+                // as BASIC and KERNAL ROM: LORAM, HIRAM and CHAREN all set.
+                if effective & 0x07 != 0x07 {
+                    err(&mut issues, format!(
+                        "run_basic_when_done() needs BASIC, KERNAL and IO banked in, but $01 is \
+                         left at {} - use all_ram_with({}, Some($37))",
+                        hex2(effective), hex2(val)
+                    ));
+                }
+            }
+            if let Some(out) = plan.out_addr {
+                if out != 0x0801 {
+                    warn(&mut issues, format!(
+                        "run_basic_when_done() relinks from TXTTAB ($2B/$2C); output {} is not \
+                         the default BASIC start $0801",
+                        hex4(out)
+                    ));
+                }
+            }
+        }
+
+        // Returning to BASIC or the KERNAL with the ROMs still banked out.
+        if let Some((val, None)) = self.all_ram {
+            if matches!(self.done, Done::Rts | Done::RunBasic) {
+                warn(&mut issues, format!(
+                    "all_ram() leaves $01 at {} and interrupts masked, but control returns to \
+                     BASIC/KERNAL - use all_ram_with({}, Some($37))",
+                    hex2(val), hex2(val)
+                ));
+            }
         }
 
         // Output region checks. Some of these need only the START address, so
@@ -667,16 +746,51 @@ impl Decruncher {
             }
         }
 
-        // Scratch region vs output.
+        // Scratch region. The decoder writes this buffer throughout the
+        // decrunch, so it gets the same placement checks as the output.
         if let (Some(sc), Some(addr)) = (spec.scratch.as_ref(), plan.scratch_addr) {
+            let s = (addr as u32, addr as u32 + sc.len as u32);
+            let name = format!("scratch region {} {}..{}", sc.symbol, hex4(addr), hex4((s.1 - 1) as u16));
+            if s.1 > 0x1_0000 {
+                err(&mut issues, format!("{name} runs past $FFFF"));
+            }
+            if s.0 < 0x0200 {
+                err(&mut issues, format!("{name} overlaps zero page / CPU stack (below $0200)"));
+            }
             if let (Some(out), Some(len)) = (plan.out_addr, plan.out_len) {
-                let s = (addr as u32, addr as u32 + sc.len as u32);
                 if overlaps(s.0, s.1, out as u32, out as u32 + len as u32) {
+                    err(&mut issues, format!("{name} overlaps the output"));
+                }
+            }
+            // As for the output: once the decruncher is staged elsewhere the
+            // program image is dead and may be written over.
+            if overlaps(s.0, s.1, prog.0, prog.1) && !plan.staged {
+                err(&mut issues, format!(
+                    "{name} overlaps the program image {}..{} - use stage_decruncher_at() \
+                     (e.g. $0100)",
+                    hex4(plan.org), hex4((program_end - 1) as u16)
+                ));
+            }
+            for &(b0, b1, bname) in blob_regions {
+                if overlaps(s.0, s.1, b0 as u32, b1 as u32) {
                     err(&mut issues, format!(
-                        "scratch region {} {}..{} overlaps the output",
-                        sc.symbol, hex4(addr), hex4((s.1 - 1) as u16)
+                        "{name} overlaps the relocated {bname} at {}..{}",
+                        hex4(b0), hex4(b1 - 1)
                     ));
                 }
+            }
+            for (i, mv) in plan.moves.iter().enumerate() {
+                if overlaps(s.0, s.1, mv.dst as u32, mv.dst as u32 + mv.len as u32) {
+                    err(&mut issues, format!(
+                        "{name} overlaps the destination of move #{i} at {}..{}",
+                        hex4(mv.dst), hex4((mv.dst as u32 + mv.len as u32 - 1) as u16)
+                    ));
+                }
+            }
+            if s.1 > 0xD000 && self.all_ram.is_none() {
+                warn(&mut issues, format!(
+                    "{name} reaches above $D000 (IO/ROM) - add all_ram() so writes land in RAM"
+                ));
             }
         }
 
@@ -746,6 +860,18 @@ impl Decruncher {
         match self.done {
             Done::Rts => tail.push_str("        RTS\n"),
             Done::Jmp(a) => tail.push_str(&format!("        JMP {}\n", hex4(a))),
+            Done::RunBasic => tail.push_str(
+                "        JSR $A533       ; relink the program's next-line pointers from TXTTAB\n\
+                 \x20       LDA $22         ; the relink stops AT the two-byte end-of-program link\n\
+                 \x20       CLC\n\
+                 \x20       ADC #$02        ; VARTAB is the byte after that link\n\
+                 \x20       STA $2D\n\
+                 \x20       LDA $23\n\
+                 \x20       ADC #$00\n\
+                 \x20       STA $2E\n\
+                 \x20       JSR $A659       ; CLR\n\
+                 \x20       JMP $A7AE       ; BASIC interpreter loop\n",
+            ),
         }
 
         // ---- blobs ----------------------------------------------------------

@@ -38,7 +38,7 @@
 
 ; ---- config-defaults ----
 zp_base = $F1
-probs_ram = $0400
+probs_ram = $C000
 ; ---- end config-defaults ----
 
 ; ---- zero page layout (15 bytes at zp_base) ----

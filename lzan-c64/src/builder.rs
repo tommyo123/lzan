@@ -11,6 +11,10 @@ pub enum Done {
     Rts,
     /// `JMP` to an entry point (self-extracting program style).
     Jmp(u16),
+    /// Start the decrunched BASIC program: rebuild the line links, set
+    /// `VARTAB`, `CLR`, then enter the interpreter loop. Needs the BASIC ROM
+    /// banked in and the program decrunched to where `TXTTAB` points.
+    RunBasic,
 }
 
 /// Where the compressed payload comes from.
@@ -404,8 +408,24 @@ impl Decruncher {
     }
 
     /// Jump here when decrunching is done (instead of the default `RTS`).
+    ///
+    /// For a decrunched BASIC program this is not enough - a `JMP` at the
+    /// program's load address executes BASIC tokens as opcodes. Use
+    /// [`Decruncher::run_basic_when_done`] instead.
     pub fn jmp_when_done(mut self, addr: u16) -> Self {
         self.done = Done::Jmp(addr);
+        self
+    }
+
+    /// Start the decrunched BASIC program once decrunching is done: relink its
+    /// next-line pointers (`$A533`), set `VARTAB`, `CLR` (`$A659`), then enter
+    /// the interpreter loop (`$A7AE`). A plain `JMP` cannot do this.
+    ///
+    /// Requires BASIC, KERNAL and IO banked in - with [`Decruncher::all_ram`]
+    /// use `all_ram_with(value, Some(0x37))` - and the program decrunched to
+    /// where `TXTTAB` points, normally `$0801`.
+    pub fn run_basic_when_done(mut self) -> Self {
+        self.done = Done::RunBasic;
         self
     }
 
